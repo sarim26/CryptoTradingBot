@@ -6,6 +6,8 @@ Tracks virtual balance, positions, and calculates profit/loss.
 from typing import Dict, List
 from datetime import datetime
 import config
+import csv
+import os
 from tax_calculator import TaxCalculator
 
 
@@ -439,4 +441,121 @@ class Portfolio:
                     print(f"  Final P/L: ${trade['net_profit_after_tax']:,.2f}")
         
         print(f"{'='*60}\n")
+    
+    def export_trade_history_to_csv(self, filename: str = None):
+        """
+        Export trade history to CSV file.
+        
+        Args:
+            filename: Optional custom filename. Defaults to 'trade_history_YYYY-MM-DD.csv'
+        """
+        if not self.trade_history:
+            print("\nNo trades to export")
+            return
+        
+        # Generate filename if not provided
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"trade_history_{timestamp}.csv"
+        
+        # Ensure filename has .csv extension
+        if not filename.endswith('.csv'):
+            filename += '.csv'
+        
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = [
+                    'timestamp', 'type', 'symbol', 'amount', 'price', 'total',
+                    'platform_fee', 'total_cost', 'net_revenue', 'gross_profit_loss',
+                    'profit_loss_percent', 'net_profit_loss', 'tax_amount', 'net_profit_after_tax'
+                ]
+                
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for trade in self.trade_history:
+                    # Create a clean row with all possible fields
+                    row = {
+                        'timestamp': trade['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
+                        'type': trade['type'],
+                        'symbol': trade['symbol'],
+                        'amount': trade['amount'],
+                        'price': trade['price'],
+                        'total': trade['total'],
+                        'platform_fee': trade.get('platform_fee', 0),
+                        'total_cost': trade.get('total_cost', trade['total']),
+                        'net_revenue': trade.get('net_revenue', trade['total']),
+                        'gross_profit_loss': trade.get('gross_profit_loss', ''),
+                        'profit_loss_percent': trade.get('profit_loss_percent', ''),
+                        'net_profit_loss': trade.get('net_profit_loss', ''),
+                        'tax_amount': trade.get('tax_amount', 0),
+                        'net_profit_after_tax': trade.get('net_profit_after_tax', '')
+                    }
+                    writer.writerow(row)
+            
+            print(f"\n✅ Trade history exported to: {filename}")
+            print(f"📊 Total trades exported: {len(self.trade_history)}")
+            
+        except Exception as e:
+            print(f"\n❌ Error exporting trade history: {e}")
+    
+    def save_trade_history_to_file(self, filename: str = None):
+        """
+        Save trade history to a text file with formatted output.
+        
+        Args:
+            filename: Optional custom filename. Defaults to 'trade_history_YYYY-MM-DD.txt'
+        """
+        if not self.trade_history:
+            print("\nNo trades to save")
+            return
+        
+        # Generate filename if not provided
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"trade_history_{timestamp}.txt"
+        
+        # Ensure filename has .txt extension
+        if not filename.endswith('.txt'):
+            filename += '.txt'
+        
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("CRYPTO TRADING BOT - TRADE HISTORY\n")
+                f.write("="*60 + "\n")
+                f.write(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Total Trades: {len(self.trade_history)}\n")
+                f.write("="*60 + "\n\n")
+                
+                for i, trade in enumerate(self.trade_history, 1):
+                    f.write(f"Trade #{i}\n")
+                    f.write("-" * 30 + "\n")
+                    f.write(f"Date: {trade['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Type: {trade['type']}\n")
+                    f.write(f"Symbol: {trade['symbol']}\n")
+                    f.write(f"Amount: {trade['amount']:.8f}\n")
+                    f.write(f"Price: ${trade['price']:,.2f}\n")
+                    f.write(f"Total: ${trade['total']:,.2f}\n")
+                    
+                    if trade.get('platform_fee', 0) > 0:
+                        f.write(f"Platform Fee: ${trade['platform_fee']:,.2f}\n")
+                    
+                    if trade['type'] == 'BUY':
+                        f.write(f"Total Cost: ${trade.get('total_cost', trade['total']):,.2f}\n")
+                    else:  # SELL
+                        f.write(f"Net Revenue: ${trade.get('net_revenue', trade['total']):,.2f}\n")
+                        if 'gross_profit_loss' in trade:
+                            f.write(f"Gross P/L: ${trade['gross_profit_loss']:,.2f} ({trade['profit_loss_percent']:+.2f}%)\n")
+                        if 'net_profit_loss' in trade and trade.get('platform_fee', 0) > 0:
+                            f.write(f"Net P/L: ${trade['net_profit_loss']:,.2f}\n")
+                        if 'net_profit_after_tax' in trade and trade.get('tax_amount', 0) > 0:
+                            f.write(f"Final P/L: ${trade['net_profit_after_tax']:,.2f}\n")
+                    
+                    f.write("\n")
+            
+            print(f"\n✅ Trade history saved to: {filename}")
+            print(f"📊 Total trades saved: {len(self.trade_history)}")
+            
+        except Exception as e:
+            print(f"\n❌ Error saving trade history: {e}")
 

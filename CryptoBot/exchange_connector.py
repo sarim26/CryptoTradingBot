@@ -151,3 +151,21 @@ class ExchangeConnector:
             print(f"Error placing order: {e}")
             return None
 
+    def get_ohlcv(self, symbol: str, timeframe: str = '1m', limit: int = 200):
+        """
+        Fetch OHLCV candles for a symbol and timeframe.
+
+        Args:
+            symbol: Trading pair symbol (e.g., 'BTC/USDT')
+            timeframe: Exchange timeframe string (e.g., '1m', '5m', '1h')
+            limit: Number of candles to fetch
+
+        Returns:
+            List of candles: [timestamp, open, high, low, close, volume]
+        """
+        try:
+            return self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        except Exception as e:
+            print(f"Error fetching OHLCV for {symbol} {timeframe}: {e}")
+            return []
+

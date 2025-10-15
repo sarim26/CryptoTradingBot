@@ -111,6 +111,34 @@ class TradingBot:
             change = ((current_price - ref_price) / ref_price) * 100
             print(f"Reference:     ${ref_price:,.2f} ({change:+.2f}%)")
         
+        # Show volatility ceiling status
+        volatility_status = self.strategy.get_volatility_status(symbol, current_price)
+        if volatility_status:
+            print(f"Volatility:    {volatility_status}")
+
+        # Show RSI if enabled
+        if getattr(self.strategy, 'enable_rsi', False):
+            rsi_value = self.strategy.get_rsi(self.exchange, symbol)
+            if rsi_value is not None:
+                rsi_note = []
+                if rsi_value <= self.strategy.rsi_oversold:
+                    rsi_note.append("oversold")
+                if rsi_value >= self.strategy.rsi_overbought:
+                    rsi_note.append("overbought")
+                note_str = f" ({', '.join(rsi_note)})" if rsi_note else ""
+                print(f"RSI:           {rsi_value:.1f}{note_str}")
+            else:
+                print("RSI:           n/a")
+
+        # Show Robust Mean if enabled
+        if getattr(config, 'ENABLE_ROBUST_MEAN', True):
+            robust_mean = self.strategy.get_robust_mean(self.exchange, symbol)
+            if robust_mean is not None:
+                delta = ((current_price - robust_mean) / robust_mean) * 100
+                print(f"Robust Mean:   ${robust_mean:,.2f} ({delta:+.2f}%)")
+            else:
+                print("Robust Mean:   n/a")
+        
         # Show position if we have one
         if base_currency in self.portfolio.positions:
             position = self.portfolio.positions[base_currency]
@@ -165,7 +193,7 @@ class TradingBot:
             position = self.portfolio.positions[base_currency]
             avg_buy_price = position['avg_buy_price']
             
-            if self.strategy.should_sell(symbol, current_price, avg_buy_price):
+            if self.strategy.should_sell(symbol, current_price, avg_buy_price, exchange=self.exchange):
                 # Sell the entire position
                 amount_to_sell = position['amount']
                 success = self.portfolio.sell(symbol, amount_to_sell, current_price)
@@ -176,7 +204,7 @@ class TradingBot:
         
         else:
             # No position - check if we should buy
-            if self.strategy.should_buy(symbol, current_price):
+            if self.strategy.should_buy(symbol, current_price, exchange=self.exchange):
                 # Calculate buy amount
                 amount_to_buy = self.strategy.calculate_buy_amount(
                     self.portfolio.balance, 
@@ -246,12 +274,19 @@ class TradingBot:
             print("1. Start Trading")
             print("2. View Portfolio")
             print("3. View Trade History")
-            print("4. Change Trading Pair")
-            print("5. Adjust Strategy Parameters")
-            print("6. Exit")
+            print("4. Export Trade History (CSV)")
+            print("5. Export Trade History (TXT)")
+            print("6. Change Trading Pair")
+            print("7. Adjust Strategy Parameters")
+            print("8. Exit")
             print("="*60)
             
-            choice = input("\nSelect option: ").strip()
+            try:
+                choice = input("\nSelect option: ").strip()
+            except EOFError:
+                # Running in Docker without interactive terminal
+                print("\n🤖 Running in Docker mode - starting trading automatically...")
+                choice = '1'  # Auto-start trading
             
             if choice == '1':
                 self.run()
@@ -266,11 +301,15 @@ class TradingBot:
             elif choice == '3':
                 self.portfolio.display_trade_history()
             elif choice == '4':
+                self.portfolio.export_trade_history_to_csv()
+            elif choice == '5':
+                self.portfolio.save_trade_history_to_file()
+            elif choice == '6':
                 self.current_symbol = self.select_crypto()
                 print(f"\n✓ Trading pair changed to {self.current_symbol}")
-            elif choice == '5':
+            elif choice == '7':
                 self.adjust_strategy()
-            elif choice == '6':
+            elif choice == '8':
                 print("\n👋 Goodbye!\n")
                 break
             else:

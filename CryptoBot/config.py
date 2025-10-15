@@ -21,8 +21,13 @@ TRADING_MODE = os.getenv('TRADING_MODE', 'paper')
 INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', 10000))  # Starting balance in USDT
 
 # Trading Strategy Parameters
-BUY_DROP_PERCENTAGE = 1.5  # Buy when price drops by this percentage
-SELL_INCREASE_PERCENTAGE = 2.5  # Sell when price increases by this percentage
+BUY_DROP_PERCENTAGE = 0.5  # Buy when price drops by this percentage
+SELL_INCREASE_PERCENTAGE = 8  # Sell when price increases by this percentage
+
+# Volatility-Based Risk Management
+ENABLE_VOLATILITY_CEILING = True  # Enable upper price limit based on volatility
+SOL_VOLATILITY_CEILING = 220.0  # Maximum price to buy SOL (based on recent volatility)
+VOLATILITY_TRACKING_PERIOD = 24  # Hours to track for volatility calculation
 
 # Trading Amount Settings
 TRADE_PERCENTAGE = 10  # Percentage of available balance to use per trade (10% = 0.1 of balance)
@@ -41,4 +46,22 @@ ENABLE_PLATFORM_FEES = True  # Set to False to disable platform fee calculations
 # Tax Configuration
 TAX_COUNTRY = 'UK'  # UK, US, INDIA, or NONE (for no tax calculations)
 ENABLE_TAX_CALCULATIONS = True  # Set to False to disable tax calculations
+
+# Technical Indicators
+ENABLE_RSI = True  # Enable RSI filter/signals
+RSI_PERIOD = int(os.getenv('RSI_PERIOD', 10))  # RSI lookback period
+RSI_TIMEFRAME = os.getenv('RSI_TIMEFRAME', '1m')  # OHLCV timeframe for RSI
+RSI_OVERSOLD = float(os.getenv('RSI_OVERSOLD', 30))  # Buy zone threshold
+RSI_OVERBOUGHT = float(os.getenv('RSI_OVERBOUGHT', 70))  # Sell zone threshold
+
+# Robust Mean (Outlier-resistant) Settings
+ENABLE_ROBUST_MEAN = True
+ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 6))
+ROBUST_MEAN_TIMEFRAME = os.getenv('ROBUST_MEAN_TIMEFRAME', '1m')
+ROBUST_MEAN_USE_PRICE = os.getenv('ROBUST_MEAN_USE_PRICE', 'close')  # 'close' | 'hl2' | 'hlc3' | 'ohlc4'
+ROBUST_MEAN_REFRESH_SECONDS = int(os.getenv('ROBUST_MEAN_REFRESH_SECONDS', 10))  # 10s or 600s
+ROBUST_MEAN_METHOD = os.getenv('ROBUST_MEAN_METHOD', 'iqr')  # 'iqr' | 'zscore' | 'mad'
+ROBUST_MEAN_ZSCORE = float(os.getenv('ROBUST_MEAN_ZSCORE', 3.0))
+ROBUST_MEAN_IQR_K = float(os.getenv('ROBUST_MEAN_IQR_K', 1.5))
+ROBUST_MEAN_MAD_K = float(os.getenv('ROBUST_MEAN_MAD_K', 3.5))
 
