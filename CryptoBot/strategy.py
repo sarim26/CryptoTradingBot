@@ -245,16 +245,31 @@ class TradingStrategy:
         
         if ml_predictor and config.ENABLE_ML_BUY_DECISION:
             try:
+                # Get trend analysis and ML prediction first
+                trend_analysis = ml_predictor.get_trend_analysis(exchange, symbol)
+                ml_trend = trend_analysis.get('trend', 'Unknown')
+                
                 predicted_percentage, confidence = ml_predictor.predict_buy_percentage(
                     exchange, symbol, current_price
                 )
                 
+                # Always show what the ML would have suggested
+                if ml_predictor.should_use_ml_prediction(confidence):
+                    print(f"🤖 ML Prediction: Would buy at {predicted_percentage:.2f}% drop (confidence: {confidence:.2f}) - Trend: {ml_trend}")
+                else:
+                    print(f"⚠️  ML confidence too low ({confidence:.2f}), would use config threshold {self.buy_drop_percent:.2f}% - Trend: {ml_trend}")
+                
+                # If ML trend is bearish, skip buying regardless of confidence
+                if config.ENABLE_TREND_PROTECTION and ml_trend == 'Bearish':
+                    print(f"🚫 BLOCKED: ML Trend is {ml_trend} - Skipping buy to avoid falling market")
+                    return False
+                
+                # If we get here, trend is not bearish, so use the ML prediction
                 if ml_predictor.should_use_ml_prediction(confidence):
                     buy_threshold = predicted_percentage
                     ml_confidence = confidence
-                    print(f"🤖 ML Prediction: Buy threshold {predicted_percentage:.2f}% (confidence: {confidence:.2f})")
                 else:
-                    print(f"⚠️  ML confidence too low ({confidence:.2f}), using config threshold")
+                    print(f"⚠️  Using config threshold due to low ML confidence")
                     
             except Exception as e:
                 print(f"⚠️  ML prediction failed: {e}, using config threshold")
@@ -273,10 +288,15 @@ class TradingStrategy:
         if price_change_percent <= -buy_threshold:
             if self.enable_rsi and exchange is not None:
                 rsi_value = self.get_rsi(exchange, symbol)
-                if rsi_value is not None and rsi_value > self.rsi_oversold:
-                    # RSI not oversold yet; skip buy
-                    print(f"   RSI {rsi_value:.1f} > oversold {self.rsi_oversold} → skipping buy")
-                    return False
+                if rsi_value is not None:
+                    # Additional safety: If RSI is extremely oversold (< 20), be more cautious
+                    if config.ENABLE_EXTREME_OVERSOLD_PROTECTION and rsi_value < 20:
+                        print(f"⚠️  RSI extremely oversold ({rsi_value:.1f} < 20) - Market may be in free fall, skipping buy")
+                        return False
+                    elif rsi_value > self.rsi_oversold:
+                        # RSI not oversold yet; skip buy
+                        print(f"   RSI {rsi_value:.1f} > oversold {self.rsi_oversold} → skipping buy")
+                        return False
             print(f"\n✅ BUY SIGNAL TRIGGERED for {symbol}")
             print(f"   Current Price: ${current_price:,.2f}")
             print(f"   Reference Price: ${reference_price:,.2f}")
