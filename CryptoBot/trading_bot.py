@@ -34,11 +34,94 @@ class TradingBot:
         self.portfolio = Portfolio(exchange_connector=self.exchange)
         self.strategy = TradingStrategy()
         
+        # ML predictor (will be initialized if user chooses ML option)
+        self.ml_predictor = None
+        self.use_ml_buy_decision = False
+        
         # Trading state
         self.is_running = False
         self.current_symbol = None
         
         print("✓ All components initialized successfully\n")
+    
+    def select_buy_decision_mode(self) -> bool:
+        """
+        Let user choose between ML-based or config-based buy percentage decisions.
+        
+        Returns:
+            True if user chooses ML-based decisions, False for config-based
+        """
+        print("\n" + "="*60)
+        print("🤖 BUY DECISION MODE SELECTION")
+        print("="*60)
+        print("\nChoose how the bot should decide buy percentages:")
+        print("\n1. 🤖 ML-Based Decision (Recommended)")
+        print("   - Bot analyzes historical trends and market conditions")
+        print("   - Dynamically adjusts buy percentage based on ML predictions")
+        print("   - Uses technical indicators and price patterns")
+        print("   - More adaptive to market conditions")
+        
+        print("\n2. ⚙️  Config-Based Decision (Traditional)")
+        print("   - Uses fixed buy percentage from config settings")
+        print("   - Simple and predictable")
+        print("   - Current setting: -{config.BUY_DROP_PERCENTAGE}%")
+        
+        print("\n" + "="*60)
+        
+        while True:
+            try:
+                choice = input("\nYour choice (1 for ML, 2 for Config): ").strip()
+                
+                if choice == '1':
+                    print("\n✅ Selected ML-Based Buy Decision")
+                    print("   The bot will analyze market trends to determine optimal buy percentages")
+                    return True
+                elif choice == '2':
+                    print(f"\n✅ Selected Config-Based Buy Decision")
+                    print(f"   Using fixed buy percentage: -{config.BUY_DROP_PERCENTAGE}%")
+                    return False
+                else:
+                    print("❌ Invalid choice. Please enter 1 or 2.")
+                    
+            except (EOFError, KeyboardInterrupt):
+                print("\n⚠️  Using default: Config-Based Decision")
+                return False
+    
+    def initialize_ml_predictor(self, symbol: str) -> bool:
+        """
+        Initialize and train the ML predictor for the selected symbol.
+        
+        Args:
+            symbol: Trading pair symbol
+            
+        Returns:
+            True if ML predictor initialized successfully, False otherwise
+        """
+        try:
+            from ml_predictor import MLPredictor
+            
+            print(f"\n🔄 Initializing ML Predictor for {symbol}...")
+            self.ml_predictor = MLPredictor()
+            
+            # Train the model
+            success = self.ml_predictor.train_model(self.exchange, symbol)
+            
+            if success:
+                print("✅ ML Predictor ready!")
+                return True
+            else:
+                print("❌ ML Predictor training failed, falling back to config-based decisions")
+                self.ml_predictor = None
+                self.use_ml_buy_decision = False
+                return False
+                
+        except ImportError as e:
+            print(f"❌ Failed to import ML dependencies: {e}")
+            print("   Please install required packages: pip install scikit-learn pandas numpy")
+            return False
+        except Exception as e:
+            print(f"❌ Error initializing ML predictor: {e}")
+            return False
     
     def select_crypto(self) -> str:
         """
@@ -139,6 +222,26 @@ class TradingBot:
             else:
                 print("Robust Mean:   n/a")
         
+        # Show Support/Resistance analysis
+        support_resistance_status = self.strategy.get_support_resistance_status(symbol)
+        if support_resistance_status:
+            print(f"S/R Analysis:  {support_resistance_status}")
+        
+        # Show ML trend analysis if ML predictor is available
+        if self.ml_predictor and self.use_ml_buy_decision:
+            try:
+                trend_analysis = self.ml_predictor.get_trend_analysis(self.exchange, symbol)
+                if "error" not in trend_analysis:
+                    print(f"ML Trend:      {trend_analysis['trend']} (vol: {trend_analysis['volatility']:.2f}%)")
+                    
+                    # Show support/resistance levels
+                    support_dist = trend_analysis['support_distance']
+                    resistance_dist = trend_analysis['resistance_distance']
+                    print(f"Support:       {support_dist:.2f}% away")
+                    print(f"Resistance:    {resistance_dist:.2f}% away")
+            except Exception as e:
+                print(f"ML Analysis:   Error - {e}")
+        
         # Show position if we have one
         if base_currency in self.portfolio.positions:
             position = self.portfolio.positions[base_currency]
@@ -204,7 +307,8 @@ class TradingBot:
         
         else:
             # No position - check if we should buy
-            if self.strategy.should_buy(symbol, current_price, exchange=self.exchange):
+            if self.strategy.should_buy(symbol, current_price, exchange=self.exchange, 
+                                      ml_predictor=self.ml_predictor if self.use_ml_buy_decision else None):
                 # Calculate buy amount
                 amount_to_buy = self.strategy.calculate_buy_amount(
                     self.portfolio.balance, 
@@ -226,13 +330,28 @@ class TradingBot:
         # Let user select crypto to trade
         self.current_symbol = self.select_crypto()
         
+        # Let user choose buy decision mode
+        self.use_ml_buy_decision = self.select_buy_decision_mode()
+        
+        # Initialize ML predictor if user chose ML mode
+        if self.use_ml_buy_decision:
+            success = self.initialize_ml_predictor(self.current_symbol)
+            if not success:
+                print("⚠️  Falling back to config-based buy decisions")
+                self.use_ml_buy_decision = False
+        
         print(f"\n{'='*60}")
         print(f"🚀 STARTING TRADING BOT")
         print(f"{'='*60}")
         print(f"Trading Pair:     {self.current_symbol}")
         print(f"Mode:             {config.TRADING_MODE.upper()}")
         print(f"Check Interval:   {config.PRICE_CHECK_INTERVAL} seconds")
-        print(f"Buy Threshold:    -{config.BUY_DROP_PERCENTAGE}%")
+        
+        if self.use_ml_buy_decision:
+            print(f"Buy Decision:     🤖 ML-Based (Dynamic)")
+        else:
+            print(f"Buy Threshold:    -{config.BUY_DROP_PERCENTAGE}% (Fixed)")
+            
         print(f"Sell Threshold:   +{config.SELL_INCREASE_PERCENTAGE}%")
         print(f"Trade Size:       {config.TRADE_PERCENTAGE}% of balance")
         print(f"\nPress Ctrl+C to stop the bot\n")

@@ -40,6 +40,15 @@ class TradingStrategy:
         # Track reference prices for each symbol
         self.reference_prices: Dict[str, float] = {}
         
+        # Support/Resistance trend tracking
+        self.support_history: Dict[str, List[float]] = {}
+        self.resistance_history: Dict[str, List[float]] = {}
+        self.market_trend: Dict[str, str] = {}  # 'bullish', 'bearish', 'neutral'
+        self.last_support: Dict[str, float] = {}
+        self.last_resistance: Dict[str, float] = {}
+        self.support_trend: Dict[str, str] = {}  # 'increasing', 'decreasing', 'stable'
+        self.resistance_trend: Dict[str, str] = {}  # 'increasing', 'decreasing', 'stable'
+        
         print(f"\n{'='*60}")
         print(f"Trading Strategy Initialized")
         print(f"{'='*60}")
@@ -200,13 +209,16 @@ class TradingStrategy:
         """
         return self.reference_prices.get(symbol)
     
-    def should_buy(self, symbol: str, current_price: float, exchange=None) -> bool:
+    def should_buy(self, symbol: str, current_price: float, exchange=None, ml_predictor=None) -> bool:
         """
         Determine if we should buy based on price drop and volatility ceiling.
+        Can use ML predictor for dynamic buy percentage calculation.
         
         Args:
             symbol: Trading pair symbol
             current_price: Current market price
+            exchange: Exchange connector instance
+            ml_predictor: ML predictor instance for dynamic buy percentage
         
         Returns:
             True if buy signal is triggered, False otherwise
@@ -227,8 +239,38 @@ class TradingStrategy:
         reference_price = self.reference_prices[symbol]
         price_change_percent = ((current_price - reference_price) / reference_price) * 100
         
+        # Determine buy threshold - use ML prediction if available
+        buy_threshold = self.buy_drop_percent
+        ml_confidence = 0.0
+        
+        if ml_predictor and config.ENABLE_ML_BUY_DECISION:
+            try:
+                predicted_percentage, confidence = ml_predictor.predict_buy_percentage(
+                    exchange, symbol, current_price
+                )
+                
+                if ml_predictor.should_use_ml_prediction(confidence):
+                    buy_threshold = predicted_percentage
+                    ml_confidence = confidence
+                    print(f"🤖 ML Prediction: Buy threshold {predicted_percentage:.2f}% (confidence: {confidence:.2f})")
+                else:
+                    print(f"⚠️  ML confidence too low ({confidence:.2f}), using config threshold")
+                    
+            except Exception as e:
+                print(f"⚠️  ML prediction failed: {e}, using config threshold")
+        
+        # Apply support/resistance-based dynamic adjustments
+        buy_threshold = self.get_dynamic_buy_threshold(symbol, current_price, buy_threshold, exchange)
+        
+        # Check for instant buy signal (support reversal)
+        if self.check_instant_buy_signal(symbol, current_price):
+            print(f"\n🚀 INSTANT BUY SIGNAL TRIGGERED for {symbol}")
+            print(f"   Current Price: ${current_price:,.2f}")
+            print(f"   Reason: Support reversal detected")
+            return True
+        
         # Buy if price dropped by the threshold percentage and RSI (if enabled) confirms
-        if price_change_percent <= -self.buy_drop_percent:
+        if price_change_percent <= -buy_threshold:
             if self.enable_rsi and exchange is not None:
                 rsi_value = self.get_rsi(exchange, symbol)
                 if rsi_value is not None and rsi_value > self.rsi_oversold:
@@ -239,6 +281,11 @@ class TradingStrategy:
             print(f"   Current Price: ${current_price:,.2f}")
             print(f"   Reference Price: ${reference_price:,.2f}")
             print(f"   Price Change: {price_change_percent:.2f}%")
+            print(f"   Buy Threshold: {buy_threshold:.2f}%")
+            
+            if ml_confidence > 0:
+                print(f"   ML Confidence: {ml_confidence:.2f} ✓")
+            
             if self.enable_rsi and exchange is not None:
                 if 'rsi_value' in locals() and rsi_value is not None:
                     print(f"   RSI: {rsi_value:.1f} (≤ {self.rsi_oversold} oversold ✓)")
@@ -373,4 +420,236 @@ class TradingStrategy:
                 return f"✅ Below ceiling (${ceiling:,.2f})"
                 
         return ""
+    
+    def update_support_resistance_analysis(self, symbol: str, current_price: float, exchange=None):
+        """
+        Update support/resistance analysis and detect market trends.
+        
+        Args:
+            symbol: Trading pair symbol
+            current_price: Current market price
+            exchange: Exchange connector for getting historical data
+        """
+        if not exchange:
+            return
+            
+        base_currency = symbol.split('/')[0]
+        
+        try:
+            # Get recent OHLCV data for support/resistance calculation
+            candles = exchange.get_ohlcv(symbol, timeframe='5m', limit=50)
+            if not candles or len(candles) < 20:
+                return
+            
+            # Calculate current support and resistance
+            recent_lows = [candle[3] for candle in candles[-20:]]  # Low prices
+            recent_highs = [candle[2] for candle in candles[-20:]]  # High prices
+            
+            current_support = min(recent_lows)
+            current_resistance = max(recent_highs)
+            
+            # Initialize history if first time
+            if base_currency not in self.support_history:
+                self.support_history[base_currency] = []
+                self.resistance_history[base_currency] = []
+            
+            # Add to history (keep last 10 values)
+            self.support_history[base_currency].append(current_support)
+            self.resistance_history[base_currency].append(current_resistance)
+            
+            # Keep only last 10 values
+            if len(self.support_history[base_currency]) > 10:
+                self.support_history[base_currency] = self.support_history[base_currency][-10:]
+                self.resistance_history[base_currency] = self.resistance_history[base_currency][-10:]
+            
+            # Need at least 3 values to determine trend
+            if len(self.support_history[base_currency]) >= 3:
+                self._analyze_support_resistance_trends(base_currency)
+            
+            # Store current values
+            self.last_support[base_currency] = current_support
+            self.last_resistance[base_currency] = current_resistance
+            
+        except Exception as e:
+            print(f"⚠️  Support/Resistance analysis failed: {e}")
+    
+    def _analyze_support_resistance_trends(self, base_currency: str):
+        """
+        Analyze support and resistance trends to determine market direction.
+        
+        Args:
+            base_currency: Base currency symbol
+        """
+        support_values = self.support_history[base_currency]
+        resistance_values = self.resistance_history[base_currency]
+        
+        # Analyze support trend (last 3 values)
+        if len(support_values) >= 3:
+            recent_support = support_values[-3:]
+            if recent_support[-1] > recent_support[-2] > recent_support[-3]:
+                self.support_trend[base_currency] = 'increasing'
+            elif recent_support[-1] < recent_support[-2] < recent_support[-3]:
+                self.support_trend[base_currency] = 'decreasing'
+            else:
+                self.support_trend[base_currency] = 'stable'
+        
+        # Analyze resistance trend (last 3 values)
+        if len(resistance_values) >= 3:
+            recent_resistance = resistance_values[-3:]
+            if recent_resistance[-1] > recent_resistance[-2] > recent_resistance[-3]:
+                self.resistance_trend[base_currency] = 'increasing'
+            elif recent_resistance[-1] < recent_resistance[-2] < recent_resistance[-3]:
+                self.resistance_trend[base_currency] = 'decreasing'
+            else:
+                self.resistance_trend[base_currency] = 'stable'
+        
+        # Determine overall market trend
+        support_trend = self.support_trend.get(base_currency, 'stable')
+        resistance_trend = self.resistance_trend.get(base_currency, 'stable')
+        
+        if support_trend == 'decreasing' and resistance_trend == 'increasing':
+            self.market_trend[base_currency] = 'bearish'  # Falling market
+        elif support_trend == 'increasing' and resistance_trend == 'decreasing':
+            self.market_trend[base_currency] = 'bullish'  # Rising market
+        elif support_trend == 'increasing' and resistance_trend == 'stable':
+            self.market_trend[base_currency] = 'bullish'  # Support building
+        elif support_trend == 'stable' and resistance_trend == 'decreasing':
+            self.market_trend[base_currency] = 'bullish'  # Resistance breaking
+        else:
+            self.market_trend[base_currency] = 'neutral'
+    
+    def get_dynamic_buy_threshold(self, symbol: str, current_price: float, 
+                                 base_threshold: float, exchange=None) -> float:
+        """
+        Calculate dynamic buy threshold based on support/resistance analysis.
+        
+        Args:
+            symbol: Trading pair symbol
+            current_price: Current market price
+            base_threshold: Base buy threshold percentage
+            exchange: Exchange connector for getting historical data
+            
+        Returns:
+            Adjusted buy threshold percentage
+        """
+        base_currency = symbol.split('/')[0]
+        
+        # Update support/resistance analysis
+        self.update_support_resistance_analysis(symbol, current_price, exchange)
+        
+        market_trend = self.market_trend.get(base_currency, 'neutral')
+        support_trend = self.support_trend.get(base_currency, 'stable')
+        resistance_trend = self.resistance_trend.get(base_currency, 'stable')
+        
+        # Start with base threshold
+        adjusted_threshold = base_threshold
+        
+        # Apply support/resistance-based adjustments
+        if market_trend == 'bearish':
+            # Falling market: Support decreasing + Resistance increasing
+            # Be more conservative - require bigger drops
+            adjusted_threshold *= 2.0  # Double the threshold (e.g., 0.5% -> 1.0%)
+            print(f"📉 Bearish market detected: Support {support_trend}, Resistance {resistance_trend}")
+            print(f"   Adjusted threshold: {adjusted_threshold:.2f}% (more conservative)")
+            
+        elif market_trend == 'bullish':
+            # Rising market: Support increasing + Resistance decreasing
+            # Be more aggressive - smaller drops needed
+            adjusted_threshold *= 0.6  # Reduce threshold (e.g., 0.5% -> 0.3%)
+            print(f"📈 Bullish market detected: Support {support_trend}, Resistance {resistance_trend}")
+            print(f"   Adjusted threshold: {adjusted_threshold:.2f}% (more aggressive)")
+            
+        elif support_trend == 'increasing':
+            # Support is building up - good sign for buying
+            adjusted_threshold *= 0.7  # Slightly more aggressive
+            print(f"🛡️  Support building: {support_trend}")
+            print(f"   Adjusted threshold: {adjusted_threshold:.2f}% (support building)")
+            
+        elif resistance_trend == 'decreasing':
+            # Resistance is weakening - good sign for buying
+            adjusted_threshold *= 0.8  # Slightly more aggressive
+            print(f"💪 Resistance weakening: {resistance_trend}")
+            print(f"   Adjusted threshold: {adjusted_threshold:.2f}% (resistance breaking)")
+        
+        # Ensure threshold stays within reasonable bounds
+        adjusted_threshold = max(0.2, min(3.0, adjusted_threshold))
+        
+        return adjusted_threshold
+    
+    def check_instant_buy_signal(self, symbol: str, current_price: float) -> bool:
+        """
+        Check for instant buy signal when support starts increasing (reversal signal).
+        
+        Args:
+            symbol: Trading pair symbol
+            current_price: Current market price
+            
+        Returns:
+            True if instant buy signal is triggered
+        """
+        base_currency = symbol.split('/')[0]
+        
+        # Check if we have enough history
+        if (base_currency not in self.support_history or 
+            len(self.support_history[base_currency]) < 3):
+            return False
+        
+        support_trend = self.support_trend.get(base_currency, 'stable')
+        
+        # Instant buy when support starts increasing (reversal signal)
+        if support_trend == 'increasing':
+            # Check if this is a new trend (wasn't increasing before)
+            if len(self.support_history[base_currency]) >= 4:
+                previous_trend = 'stable'
+                prev_support = self.support_history[base_currency][-4:-1]
+                if len(prev_support) >= 3:
+                    if prev_support[-1] > prev_support[-2] > prev_support[-3]:
+                        previous_trend = 'increasing'
+                    elif prev_support[-1] < prev_support[-2] < prev_support[-3]:
+                        previous_trend = 'decreasing'
+                
+                # If support was decreasing or stable before, and now increasing
+                if previous_trend in ['decreasing', 'stable']:
+                    print(f"🚀 INSTANT BUY SIGNAL: Support reversal detected!")
+                    print(f"   Previous trend: {previous_trend}")
+                    print(f"   Current trend: {support_trend}")
+                    print(f"   Support values: {self.support_history[base_currency][-3:]}")
+                    return True
+        
+        return False
+    
+    def get_support_resistance_status(self, symbol: str) -> str:
+        """
+        Get support/resistance status for display.
+        
+        Args:
+            symbol: Trading pair symbol
+            
+        Returns:
+            Status string for display
+        """
+        base_currency = symbol.split('/')[0]
+        
+        if base_currency not in self.market_trend:
+            return ""
+        
+        market_trend = self.market_trend[base_currency]
+        support_trend = self.support_trend.get(base_currency, 'stable')
+        resistance_trend = self.resistance_trend.get(base_currency, 'stable')
+        
+        status_parts = []
+        
+        # Market trend
+        trend_emoji = {'bullish': '📈', 'bearish': '📉', 'neutral': '➡️'}
+        status_parts.append(f"Trend: {trend_emoji.get(market_trend, '➡️')} {market_trend}")
+        
+        # Support trend
+        support_emoji = {'increasing': '🛡️', 'decreasing': '🛡️', 'stable': '🛡️'}
+        status_parts.append(f"Support: {support_emoji.get(support_trend, '🛡️')} {support_trend}")
+        
+        # Resistance trend
+        resistance_emoji = {'increasing': '💪', 'decreasing': '💪', 'stable': '💪'}
+        status_parts.append(f"Resistance: {resistance_emoji.get(resistance_trend, '💪')} {resistance_trend}")
+        
+        return " | ".join(status_parts)
 
