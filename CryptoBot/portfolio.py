@@ -160,6 +160,9 @@ class Portfolio:
         }
         self.trade_history.append(trade)
         
+        # Automatically save trade to file
+        self._save_trade_to_file(trade)
+        
         # Print trade confirmation
         print(f"\n{'-'*60}")
         print(f"BUY ORDER EXECUTED")
@@ -256,6 +259,9 @@ class Portfolio:
             'net_profit_after_tax': net_profit_after_tax
         }
         self.trade_history.append(trade)
+        
+        # Automatically save trade to file
+        self._save_trade_to_file(trade)
         
         # Print trade confirmation
         profit_symbol = "(PROFIT)" if net_profit_loss >= 0 else "(LOSS)"
@@ -558,4 +564,95 @@ class Portfolio:
             
         except Exception as e:
             print(f"\n❌ Error saving trade history: {e}")
+    
+    def _save_trade_to_file(self, trade):
+        """
+        Automatically save a single trade to the persistent trade log file.
+        Creates the file if it doesn't exist, appends if it does.
+        
+        Args:
+            trade: Trade dictionary to save
+        """
+        try:
+            filename = "trades.log"
+            
+            # Check if file exists to determine if we need a header
+            file_exists = os.path.exists(filename)
+            
+            with open(filename, 'a', encoding='utf-8') as f:
+                # Write header if this is the first trade
+                if not file_exists:
+                    f.write("CRYPTO BOT TRADE LOG\n")
+                    f.write("="*80 + "\n")
+                    f.write("Format: Date | Type | Symbol | Amount | Price | Total | Fee | P/L | P/L%\n")
+                    f.write("="*80 + "\n\n")
+                
+                # Format the trade data
+                timestamp = trade['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+                trade_type = trade['type']
+                symbol = trade['symbol']
+                amount = trade['amount']
+                price = trade['price']
+                total = trade['total']
+                fee = trade.get('platform_fee', 0)
+                
+                # Format profit/loss info for sells
+                if trade_type == 'SELL':
+                    pl = trade.get('net_profit_loss', 0)
+                    pl_percent = trade.get('profit_loss_percent', 0)
+                    pl_str = f"${pl:,.2f}" if pl != 0 else "N/A"
+                    pl_percent_str = f"{pl_percent:+.2f}%" if pl_percent != 0 else "N/A"
+                else:
+                    pl_str = "N/A"
+                    pl_percent_str = "N/A"
+                
+                # Write the trade line
+                f.write(f"{timestamp} | {trade_type:4} | {symbol:10} | {amount:12.8f} | ${price:8,.2f} | ${total:8,.2f} | ${fee:6,.2f} | {pl_str:>8} | {pl_percent_str:>6}\n")
+                f.flush()  # Ensure it's written immediately
+                
+        except Exception as e:
+            # Don't let file writing errors break trading
+            print(f"Warning: Could not save trade to file: {e}")
+    
+    def view_trade_log(self, last_n: int = 10):
+        """
+        View the persistent trade log file.
+        
+        Args:
+            last_n: Number of recent trades to display
+        """
+        try:
+            filename = "trades.log"
+            
+            if not os.path.exists(filename):
+                print("\nNo trade log file found. Trades will be saved automatically when they occur.")
+                return
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # Skip header lines (first 4 lines)
+            trade_lines = [line for line in lines if '|' in line and not line.startswith('Format')]
+            
+            if not trade_lines:
+                print("\nNo trades found in log file.")
+                return
+            
+            print(f"\n{'='*80}")
+            print(f"TRADE LOG (Last {min(last_n, len(trade_lines))} trades)")
+            print(f"{'='*80}")
+            
+            # Show header
+            if lines and 'Format:' in lines[2]:
+                print(lines[2].strip())
+                print("="*80)
+            
+            # Show recent trades
+            for line in trade_lines[-last_n:]:
+                print(line.strip())
+            
+            print(f"{'='*80}\n")
+            
+        except Exception as e:
+            print(f"\nError reading trade log: {e}")
 
