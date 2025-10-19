@@ -15,6 +15,18 @@ from strategy import TradingStrategy
 # Fix Unicode encoding issues on Windows
 if sys.platform == "win32":
     os.system("chcp 65001 > nul")
+elif sys.platform == "darwin":  # macOS
+    # macOS handles Unicode well by default, but ensure UTF-8
+    import locale
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+elif sys.platform.startswith("linux"):  # Linux
+    # Linux handles Unicode well by default
+    import locale
+    try:
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    except locale.Error:
+        # Fallback if en_US.UTF-8 not available
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
 
 
 class TradingBot:
