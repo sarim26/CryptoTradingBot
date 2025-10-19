@@ -5,6 +5,7 @@ Implements the buy/sell logic based on price movements.
 
 from typing import Optional, Dict, List
 import config
+import time
 
 
 class TradingStrategy:
@@ -48,6 +49,9 @@ class TradingStrategy:
         self.last_resistance: Dict[str, float] = {}
         self.support_trend: Dict[str, str] = {}  # 'increasing', 'decreasing', 'stable'
         self.resistance_trend: Dict[str, str] = {}  # 'increasing', 'decreasing', 'stable'
+        
+        # Mean-based strategy tracking
+        self.last_buy_prices: Dict[str, float] = {}  # Track last buy price for sell decisions
         
         print(f"\n{'='*60}")
         print(f"Trading Strategy Initialized")
@@ -161,6 +165,7 @@ class TradingStrategy:
         mad = sorted(deviations)[len(deviations)//2] or 1e-9
         return [v for v in values if abs(v - median) / mad <= k]
 
+
     def get_robust_mean(self, exchange, symbol: str) -> Optional[float]:
         if not getattr(config, 'ENABLE_ROBUST_MEAN', True):
             return None
@@ -213,6 +218,7 @@ class TradingStrategy:
         """
         Determine if we should buy based on price drop and volatility ceiling.
         Can use ML predictor for dynamic buy percentage calculation.
+        Uses mean-based strategy if enabled.
         
         Args:
             symbol: Trading pair symbol
@@ -231,21 +237,42 @@ class TradingStrategy:
                 print(f"   If you want to buy anyway then quickly get to the code and stop and rerun the bot immediately.")
                 return False
         
-        # If no reference price, set current price as reference and don't buy yet
-        if symbol not in self.reference_prices:
-            self.set_reference_price(symbol, current_price)
+        # Use mean-based strategy (primary strategy)
+        return self._should_buy_mean_based(symbol, current_price, exchange, ml_predictor)
+    
+    def _should_buy_mean_based(self, symbol: str, current_price: float, exchange=None, ml_predictor=None) -> bool:
+        """
+        Mean-based buy strategy: Buy when price goes x% below the mean price.
+        
+        Args:
+            symbol: Trading pair symbol
+            current_price: Current market price
+            exchange: Exchange connector instance
+            ml_predictor: ML predictor instance for dynamic buy percentage
+            
+        Returns:
+            True if buy signal is triggered, False otherwise
+        """
+        if not exchange:
+            print("⚠️  Exchange required for mean-based strategy")
             return False
         
-        reference_price = self.reference_prices[symbol]
-        price_change_percent = ((current_price - reference_price) / reference_price) * 100
+        # Get current robust mean price
+        mean_price = self.get_robust_mean(exchange, symbol)
+        if mean_price is None:
+            print(f"⚠️  Could not calculate robust mean price for {symbol}")
+            return False
+        
+        # Calculate how much below mean the current price is
+        price_below_mean_percent = ((mean_price - current_price) / mean_price) * 100
         
         # Determine buy threshold - use ML prediction if available
-        buy_threshold = self.buy_drop_percent
+        buy_threshold = config.MEAN_BUY_THRESHOLD_PERCENT
         ml_confidence = 0.0
         
         if ml_predictor and config.ENABLE_ML_BUY_DECISION:
             try:
-                # Get trend analysis and ML prediction first
+                # Get trend analysis and ML prediction
                 trend_analysis = ml_predictor.get_trend_analysis(exchange, symbol)
                 ml_trend = trend_analysis.get('trend', 'Unknown')
                 
@@ -255,16 +282,16 @@ class TradingStrategy:
                 
                 # Always show what the ML would have suggested
                 if ml_predictor.should_use_ml_prediction(confidence):
-                    print(f"🤖 ML Prediction: Would buy at {predicted_percentage:.2f}% drop (confidence: {confidence:.2f}) - Trend: {ml_trend}")
+                    print(f"🤖 ML Prediction: Would buy at {predicted_percentage:.2f}% below mean (confidence: {confidence:.2f}) - Trend: {ml_trend}")
                 else:
-                    print(f"⚠️  ML confidence too low ({confidence:.2f}), would use config threshold {self.buy_drop_percent:.2f}% - Trend: {ml_trend}")
+                    print(f"⚠️  ML confidence too low ({confidence:.2f}), using config threshold {config.MEAN_BUY_THRESHOLD_PERCENT:.2f}% - Trend: {ml_trend}")
                 
                 # If ML trend is bearish, skip buying regardless of confidence
                 if config.ENABLE_TREND_PROTECTION and ml_trend == 'Bearish':
                     print(f"🚫 BLOCKED: ML Trend is {ml_trend} - Skipping buy to avoid falling market")
                     return False
                 
-                # If we get here, trend is not bearish, so use the ML prediction
+                # Use ML prediction if confidence is high enough
                 if ml_predictor.should_use_ml_prediction(confidence):
                     buy_threshold = predicted_percentage
                     ml_confidence = confidence
@@ -274,18 +301,8 @@ class TradingStrategy:
             except Exception as e:
                 print(f"⚠️  ML prediction failed: {e}, using config threshold")
         
-        # Apply support/resistance-based dynamic adjustments
-        buy_threshold = self.get_dynamic_buy_threshold(symbol, current_price, buy_threshold, exchange)
-        
-        # Check for instant buy signal (support reversal)
-        if self.check_instant_buy_signal(symbol, current_price):
-            print(f"\n🚀 INSTANT BUY SIGNAL TRIGGERED for {symbol}")
-            print(f"   Current Price: ${current_price:,.2f}")
-            print(f"   Reason: Support reversal detected")
-            return True
-        
-        # Buy if price dropped by the threshold percentage and RSI (if enabled) confirms
-        if price_change_percent <= -buy_threshold:
+        # Check if price is enough below mean to trigger buy
+        if price_below_mean_percent >= buy_threshold:
             if self.enable_rsi and exchange is not None:
                 rsi_value = self.get_rsi(exchange, symbol)
                 if rsi_value is not None:
@@ -297,10 +314,11 @@ class TradingStrategy:
                         # RSI not oversold yet; skip buy
                         print(f"   RSI {rsi_value:.1f} > oversold {self.rsi_oversold} → skipping buy")
                         return False
-            print(f"\n✅ BUY SIGNAL TRIGGERED for {symbol}")
+            
+            print(f"\n✅ MEAN-BASED BUY SIGNAL TRIGGERED for {symbol}")
             print(f"   Current Price: ${current_price:,.2f}")
-            print(f"   Reference Price: ${reference_price:,.2f}")
-            print(f"   Price Change: {price_change_percent:.2f}%")
+            print(f"   Mean Price: ${mean_price:,.2f}")
+            print(f"   Price Below Mean: {price_below_mean_percent:.2f}%")
             print(f"   Buy Threshold: {buy_threshold:.2f}%")
             
             if ml_confidence > 0:
@@ -311,8 +329,10 @@ class TradingStrategy:
                     print(f"   RSI: {rsi_value:.1f} (≤ {self.rsi_oversold} oversold ✓)")
                 else:
                     print(f"   RSI: n/a")
-            if config.ENABLE_VOLATILITY_CEILING and symbol == 'SOL/USDT':
-                print(f"   Volatility Ceiling: ${config.SOL_VOLATILITY_CEILING:,.2f} ✓")
+            
+            # Store the buy price for sell decisions
+            self.last_buy_prices[symbol] = current_price
+            
             return True
         
         return False
@@ -320,34 +340,57 @@ class TradingStrategy:
     def should_sell(self, symbol: str, current_price: float, avg_buy_price: float, exchange=None) -> bool:
         """
         Determine if we should sell based on price increase from buy price.
+        Uses mean-based strategy if enabled.
         
         Args:
             symbol: Trading pair symbol
             current_price: Current market price
             avg_buy_price: Average price at which we bought
+            exchange: Exchange connector instance
         
         Returns:
             True if sell signal is triggered, False otherwise
         """
-        price_change_percent = ((current_price - avg_buy_price) / avg_buy_price) * 100
+        # Use mean-based strategy (primary strategy)
+        return self._should_sell_mean_based(symbol, current_price, avg_buy_price, exchange)
+    
+    def _should_sell_mean_based(self, symbol: str, current_price: float, avg_buy_price: float, exchange=None) -> bool:
+        """
+        Mean-based sell strategy: Sell when price reaches target profit from buy price.
         
-        # Sell if price increased by the threshold percentage and RSI (if enabled) confirms
-        if price_change_percent >= self.sell_increase_percent:
+        Args:
+            symbol: Trading pair symbol
+            current_price: Current market price
+            avg_buy_price: Average price at which we bought
+            exchange: Exchange connector instance
+            
+        Returns:
+            True if sell signal is triggered, False otherwise
+        """
+        # Calculate profit percentage from buy price
+        profit_percent = ((current_price - avg_buy_price) / avg_buy_price) * 100
+        
+        # Sell if we've reached the target profit percentage
+        if profit_percent >= config.MEAN_SELL_PROFIT_PERCENT:
             if self.enable_rsi and exchange is not None:
                 rsi_value = self.get_rsi(exchange, symbol)
                 if rsi_value is not None and rsi_value < self.rsi_overbought:
                     # RSI not overbought yet; skip sell
                     print(f"   RSI {rsi_value:.1f} < overbought {self.rsi_overbought} → holding")
                     return False
-            print(f"\nSELL SIGNAL TRIGGERED for {symbol}")
+            
+            print(f"\n✅ MEAN-BASED SELL SIGNAL TRIGGERED for {symbol}")
             print(f"   Current Price: ${current_price:,.2f}")
-            print(f"   Avg Buy Price: ${avg_buy_price:,.2f}")
-            print(f"   Price Change: {price_change_percent:.2f}%")
+            print(f"   Buy Price: ${avg_buy_price:,.2f}")
+            print(f"   Profit: {profit_percent:,.2f}%")
+            print(f"   Target Profit: {config.MEAN_SELL_PROFIT_PERCENT:.2f}%")
+            
             if self.enable_rsi and exchange is not None:
                 if 'rsi_value' in locals() and rsi_value is not None:
                     print(f"   RSI: {rsi_value:.1f} (≥ {self.rsi_overbought} overbought ✓)")
                 else:
                     print(f"   RSI: n/a")
+            
             return True
         
         return False

@@ -19,11 +19,16 @@ API_SECRET = os.getenv('BINANCE_API_SECRET', '')
 TRADING_MODE = os.getenv('TRADING_MODE', 'paper')
 
 # Paper Trading Configuration
-INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', 10000))  # Starting balance in USDT
+INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', 1000))  # Starting balance in USDT
 
-# Trading Strategy Parameters
-BUY_DROP_PERCENTAGE = 1  # Buy when price drops by this percentage
-SELL_INCREASE_PERCENTAGE = 2  # Sell when price increases by this percentage
+# Mean-Based Trading Strategy (Primary Strategy)
+ENABLE_MEAN_BASED_STRATEGY = True  # Enable trading around robust mean price
+MEAN_BUY_THRESHOLD_PERCENT = 1.0  # Default percentage below mean to trigger buy (ML will override)
+MEAN_SELL_PROFIT_PERCENT = 1.8  # Profit percentage from buy price to trigger sell
+
+# Legacy Strategy Parameters (kept for backward compatibility)
+BUY_DROP_PERCENTAGE = 1  # Legacy: Buy when price drops by this percentage (not used with mean-based strategy)
+SELL_INCREASE_PERCENTAGE = 2  # Legacy: Sell when price increases by this percentage (not used with mean-based strategy)
 
 # Volatility-Based Risk Management
 ENABLE_VOLATILITY_CEILING = True  # Enable upper price limit based on volatility
@@ -31,7 +36,7 @@ SOL_VOLATILITY_CEILING = 220.0  # Maximum price to buy SOL (based on recent vola
 VOLATILITY_TRACKING_PERIOD = 24  # Hours to track for volatility calculation
 
 # Trading Amount Settings
-TRADE_PERCENTAGE = 10  # Percentage of available balance to use per trade (10% = 0.1 of balance)
+TRADE_PERCENTAGE = 33.33333333333333333333333333333333333333333333333333333333333333333333333333333  # Percentage of available balance to use per trade (10% = 0.1 of balance)
 
 # Data Fetching
 PRICE_CHECK_INTERVAL = 4  # Seconds between price checks
@@ -55,12 +60,12 @@ RSI_TIMEFRAME = os.getenv('RSI_TIMEFRAME', '1m')  # OHLCV timeframe for RSI
 RSI_OVERSOLD = float(os.getenv('RSI_OVERSOLD', 30))  # Buy zone threshold
 RSI_OVERBOUGHT = float(os.getenv('RSI_OVERBOUGHT', 70))  # Sell zone threshold
 
-# Robust Mean (Outlier-resistant) Settings
+# Robust Mean (Outlier-resistant) Settings - Used for Mean-Based Trading Strategy
 ENABLE_ROBUST_MEAN = True
-ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 6))
-ROBUST_MEAN_TIMEFRAME = os.getenv('ROBUST_MEAN_TIMEFRAME', '1m')
+ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 12))  # 72 hours (3 days)
+ROBUST_MEAN_TIMEFRAME = os.getenv('ROBUST_MEAN_TIMEFRAME', '1m')  # 30-minute candles
 ROBUST_MEAN_USE_PRICE = os.getenv('ROBUST_MEAN_USE_PRICE', 'close')  # 'close' | 'hl2' | 'hlc3' | 'ohlc4'
-ROBUST_MEAN_REFRESH_SECONDS = int(os.getenv('ROBUST_MEAN_REFRESH_SECONDS', 10))  # 10s or 600s
+ROBUST_MEAN_REFRESH_SECONDS = int(os.getenv('ROBUST_MEAN_REFRESH_SECONDS', 10))  # 15 minutes (900 seconds)
 ROBUST_MEAN_METHOD = os.getenv('ROBUST_MEAN_METHOD', 'iqr')  # 'iqr' | 'zscore' | 'mad'
 ROBUST_MEAN_ZSCORE = float(os.getenv('ROBUST_MEAN_ZSCORE', 3.0))
 ROBUST_MEAN_IQR_K = float(os.getenv('ROBUST_MEAN_IQR_K', 1.5))

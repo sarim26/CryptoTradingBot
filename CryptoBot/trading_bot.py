@@ -225,14 +225,13 @@ class TradingBot:
             else:
                 print("RSI:           n/a")
 
-        # Show Robust Mean if enabled
-        if getattr(config, 'ENABLE_ROBUST_MEAN', True):
-            robust_mean = self.strategy.get_robust_mean(self.exchange, symbol)
-            if robust_mean is not None:
-                delta = ((current_price - robust_mean) / robust_mean) * 100
-                print(f"Robust Mean:   ${robust_mean:,.2f} ({delta:+.2f}%)")
-            else:
-                print("Robust Mean:   n/a")
+        # Show Robust Mean (used for mean-based strategy)
+        robust_mean = self.strategy.get_robust_mean(self.exchange, symbol)
+        if robust_mean is not None:
+            delta = ((current_price - robust_mean) / robust_mean) * 100
+            print(f"Robust Mean:   ${robust_mean:,.2f} ({delta:+.2f}%)")
+        else:
+            print("Robust Mean:   n/a")
         
         # Show Support/Resistance analysis
         support_resistance_status = self.strategy.get_support_resistance_status(symbol)
@@ -359,12 +358,18 @@ class TradingBot:
         print(f"Mode:             {config.TRADING_MODE.upper()}")
         print(f"Check Interval:   {config.PRICE_CHECK_INTERVAL} seconds")
         
+        # Show mean-based strategy information
+        print(f"Strategy:         📊 Robust Mean-Based Trading")
+        print(f"Robust Mean:      {getattr(config, 'ROBUST_MEAN_LOOKBACK_HOURS', 6)} hours ({getattr(config, 'ROBUST_MEAN_TIMEFRAME', '1m')})")
+        print(f"Update Interval:  Every {getattr(config, 'ROBUST_MEAN_REFRESH_SECONDS', 10)} seconds")
+        
         if self.use_ml_buy_decision:
-            print(f"Buy Decision:     🤖 ML-Based (Dynamic)")
+            print(f"Buy Decision:     🤖 ML-Based (Dynamic below mean)")
         else:
-            print(f"Buy Threshold:    -{config.BUY_DROP_PERCENTAGE}% (Fixed)")
+            print(f"Buy Threshold:    {config.MEAN_BUY_THRESHOLD_PERCENT}% below mean")
             
-        print(f"Sell Threshold:   +{config.SELL_INCREASE_PERCENTAGE}%")
+        print(f"Sell Target:      {config.MEAN_SELL_PROFIT_PERCENT}% profit from buy")
+            
         print(f"Trade Size:       {config.TRADE_PERCENTAGE}% of balance")
         print(f"\nPress Ctrl+C to stop the bot\n")
         print(f"{'='*60}\n")
