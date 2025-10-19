@@ -5,6 +5,7 @@ Orchestrates all components and runs the main trading loop.
 
 import time
 import sys
+sys.stdout.reconfigure(line_buffering=True)
 import os
 from datetime import datetime
 import config
