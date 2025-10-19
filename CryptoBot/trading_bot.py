@@ -5,13 +5,14 @@ Orchestrates all components and runs the main trading loop.
 
 import time
 import sys
-sys.stdout.reconfigure(line_buffering=True)
 import os
 from datetime import datetime
 import config
 from exchange_connector import ExchangeConnector
 from portfolio import Portfolio
 from strategy import TradingStrategy
+
+sys.stdout.reconfigure(line_buffering=True)
 
 # Fix Unicode encoding issues on Windows
 if sys.platform == "win32":
