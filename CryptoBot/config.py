@@ -11,7 +11,7 @@ load_dotenv()
 
 # Exchange Configuration
 # For US users, use 'binanceus' instead of 'binance'
-EXCHANGE_NAME = os.getenv('EXCHANGE_NAME', 'binance')  # 'binance' for global, 'binanceus' for US
+EXCHANGE_NAME = os.getenv('EXCHANGE_NAME', 'binanceus')  # 'binance' for global, 'binanceus' for US
 API_KEY = os.getenv('BINANCE_API_KEY', '')
 API_SECRET = os.getenv('BINANCE_API_SECRET', '')
 
