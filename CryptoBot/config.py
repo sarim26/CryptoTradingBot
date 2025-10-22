@@ -62,7 +62,7 @@ RSI_OVERBOUGHT = float(os.getenv('RSI_OVERBOUGHT', 70))  # Sell zone threshold
 
 # Robust Mean (Outlier-resistant) Settings - Used for Mean-Based Trading Strategy
 ENABLE_ROBUST_MEAN = True
-ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 6))  # 72 hours (3 days)
+ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 3))  # 72 hours (3 days)
 ROBUST_MEAN_TIMEFRAME = os.getenv('ROBUST_MEAN_TIMEFRAME', '1m')  # 30-minute candles
 ROBUST_MEAN_USE_PRICE = os.getenv('ROBUST_MEAN_USE_PRICE', 'close')  # 'close' | 'hl2' | 'hlc3' | 'ohlc4'
 ROBUST_MEAN_REFRESH_SECONDS = int(os.getenv('ROBUST_MEAN_REFRESH_SECONDS', 3600))  # 15 minutes (900 seconds)
