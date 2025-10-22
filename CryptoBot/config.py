@@ -24,7 +24,7 @@ INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', 1000))  # Starting balance 
 # Mean-Based Trading Strategy (Primary Strategy)
 ENABLE_MEAN_BASED_STRATEGY = True  # Enable trading around robust mean price
 MEAN_BUY_THRESHOLD_PERCENT = 1.0  # Default percentage below mean to trigger buy (ML will override)
-MEAN_SELL_PROFIT_PERCENT = 1.8  # Profit percentage from buy price to trigger sell
+MEAN_SELL_PROFIT_PERCENT = 2  # Profit percentage from buy price to trigger sell
 
 # Legacy Strategy Parameters (kept for backward compatibility)
 BUY_DROP_PERCENTAGE = 1  # Legacy: Buy when price drops by this percentage (not used with mean-based strategy)
@@ -62,7 +62,7 @@ RSI_OVERBOUGHT = float(os.getenv('RSI_OVERBOUGHT', 70))  # Sell zone threshold
 
 # Robust Mean (Outlier-resistant) Settings - Used for Mean-Based Trading Strategy
 ENABLE_ROBUST_MEAN = True
-ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 12))  # 72 hours (3 days)
+ROBUST_MEAN_LOOKBACK_HOURS = int(os.getenv('ROBUST_MEAN_LOOKBACK_HOURS', 6))  # 72 hours (3 days)
 ROBUST_MEAN_TIMEFRAME = os.getenv('ROBUST_MEAN_TIMEFRAME', '1m')  # 30-minute candles
 ROBUST_MEAN_USE_PRICE = os.getenv('ROBUST_MEAN_USE_PRICE', 'close')  # 'close' | 'hl2' | 'hlc3' | 'ohlc4'
 ROBUST_MEAN_REFRESH_SECONDS = int(os.getenv('ROBUST_MEAN_REFRESH_SECONDS', 3600))  # 15 minutes (900 seconds)
@@ -75,7 +75,7 @@ ROBUST_MEAN_MAD_K = float(os.getenv('ROBUST_MEAN_MAD_K', 3.5))
 ENABLE_ML_BUY_DECISION = True  # Enable ML-based buy percentage calculation
 ML_LOOKBACK_HOURS = int(os.getenv('ML_LOOKBACK_HOURS', 168))  # Hours of historical data for ML analysis
 ML_TIMEFRAME = os.getenv('ML_TIMEFRAME', '1m')  # Timeframe for ML data collection
-ML_MIN_BUY_PERCENTAGE = float(os.getenv('ML_MIN_BUY_PERCENTAGE', 0.3))  # Minimum buy percentage (0.5%)
+ML_MIN_BUY_PERCENTAGE = float(os.getenv('ML_MIN_BUY_PERCENTAGE', 0.5))  # Minimum buy percentage (0.5%)
 ML_MAX_BUY_PERCENTAGE = float(os.getenv('ML_MAX_BUY_PERCENTAGE', 8.0))  # Maximum buy percentage (3.0%)
 ML_CONFIDENCE_THRESHOLD = float(os.getenv('ML_CONFIDENCE_THRESHOLD', 0.4))  # Minimum confidence for ML decision
 ML_CACHE_DURATION_SECONDS = int(os.getenv('ML_CACHE_DURATION_SECONDS', 50))  # How long to cache ML predictions
