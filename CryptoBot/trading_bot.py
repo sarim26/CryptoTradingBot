@@ -4,6 +4,8 @@ Orchestrates all components and runs the main trading loop.
 """
 
 import time
+import threading
+import queue
 import sys
 import os
 from datetime import datetime
@@ -56,7 +58,27 @@ class TradingBot:
         self.is_running = False
         self.current_symbol = None
         
+        # Command input handling
+        self._command_queue = queue.Queue()
+        self._input_thread = None
+        
         print("✓ All components initialized successfully\n")
+
+    def _input_listener(self):
+        """
+        Background listener that reads terminal input and enqueues commands.
+        Accepts: 'sell' to sell current position, 'stop'/'exit' to stop.
+        """
+        while True:
+            try:
+                cmd = input().strip().lower()
+            except EOFError:
+                # Non-interactive environment
+                break
+            if not cmd:
+                continue
+            if cmd in ("sell", "stop", "exit"):
+                self._command_queue.put(cmd)
     
     def select_buy_decision_mode(self) -> bool:
         """
@@ -289,12 +311,37 @@ class TradingBot:
         Args:
             symbol: Trading pair to trade
         """
-        # Fetch current price
-        current_price = self.exchange.get_current_price(symbol)
+        # Fetch ticker and derive a robust current price
+        ticker = self.exchange.get_ticker_info(symbol)
+        if ticker is None:
+            print("✗ Failed to fetch ticker, skipping this cycle")
+            return
+        bid = ticker.get('bid')
+        ask = ticker.get('ask')
+        last = ticker.get('last')
+        current_price = None
+        if bid and ask:
+            current_price = (float(bid) + float(ask)) / 2.0
+        elif last:
+            current_price = float(last)
+        elif bid:
+            current_price = float(bid)
+        elif ask:
+            current_price = float(ask)
         
         if current_price is None:
-            print("✗ Failed to fetch price, skipping this cycle")
+            print("✗ Failed to derive current price, skipping this cycle")
             return
+        
+        # Warn if ticker is stale (older than ~15 seconds)
+        try:
+            if ticker.get('timestamp'):
+                import time as _t
+                age_ms = int(_t.time() * 1000) - int(ticker['timestamp'])
+                if age_ms > 15000:
+                    print(f"⚠️  Stale ticker data ({age_ms/1000:.1f}s old) — prices may appear unchanged")
+        except Exception:
+            pass
         
         # Display current status
         self.display_current_status(symbol, current_price)
@@ -334,6 +381,36 @@ class TradingBot:
                 if success:
                     # Update reference price after buy
                     self.strategy.update_reference_price_after_buy(symbol, current_price)
+        
+        # Process any user commands after strategy actions
+        self._process_commands(symbol)
+
+    def _process_commands(self, symbol: str):
+        """Handle pending user commands like 'sell' or 'stop'."""
+        while not self._command_queue.empty():
+            cmd = self._command_queue.get()
+            if cmd == "sell":
+                base_currency = symbol.split('/')[0]
+                if base_currency in self.portfolio.positions:
+                    # Fetch latest price to execute manual sell
+                    price = self.exchange.get_current_price(symbol)
+                    if price is None:
+                        print("✗ Failed to fetch price for manual sell.")
+                        continue
+                    amount = self.portfolio.positions[base_currency]['amount']
+                    if amount <= 0:
+                        print("✗ No amount available to sell.")
+                        continue
+                    success = self.portfolio.sell(symbol, amount, price)
+                    if success:
+                        # Reset reference so bot can wait for next buy
+                        self.strategy.set_reference_price(symbol, price)
+                        print("✓ Manual sell completed. Waiting for next buy setup.")
+                else:
+                    print("✗ No open position to sell.")
+            elif cmd in ("stop", "exit"):
+                print("🛑 Stopping bot by user command.")
+                self.is_running = False
     
     def run(self):
         """
@@ -373,12 +450,18 @@ class TradingBot:
         print(f"Sell Target:      {config.MEAN_SELL_PROFIT_PERCENT}% profit from buy")
             
         print(f"Trade Size:       {config.TRADE_PERCENTAGE}% of balance")
-        print(f"\nPress Ctrl+C to stop the bot\n")
+        print(f"\nType 'sell' + Enter anytime to sell current position.")
+        print(f"Type 'stop' or 'exit' to stop the bot.")
+        print(f"Press Ctrl+C to stop the bot as well.\n")
         print(f"{'='*60}\n")
         
         self.is_running = True
         
         try:
+            # Start input listener thread once the bot starts
+            if self._input_thread is None or not self._input_thread.is_alive():
+                self._input_thread = threading.Thread(target=self._input_listener, daemon=True)
+                self._input_thread.start()
             while self.is_running:
                 # Execute one trading cycle
                 self.execute_trading_cycle(self.current_symbol)

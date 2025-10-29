@@ -86,12 +86,14 @@ class ExchangeConnector:
             ticker = self.exchange.fetch_ticker(symbol)
             return {
                 'symbol': symbol,
-                'last': ticker['last'],
-                'bid': ticker['bid'],
-                'ask': ticker['ask'],
-                'high': ticker['high'],
-                'low': ticker['low'],
-                'volume': ticker['baseVolume'],
+                'last': ticker.get('last'),
+                'bid': ticker.get('bid'),
+                'ask': ticker.get('ask'),
+                'high': ticker.get('high'),
+                'low': ticker.get('low'),
+                'volume': ticker.get('baseVolume'),
+                'timestamp': ticker.get('timestamp'),
+                'datetime': ticker.get('datetime'),
             }
         except Exception as e:
             print(f"Error fetching ticker info for {symbol}: {e}")
