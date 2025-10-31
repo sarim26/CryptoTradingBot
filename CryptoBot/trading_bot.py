@@ -67,7 +67,8 @@ class TradingBot:
     def _input_listener(self):
         """
         Background listener that reads terminal input and enqueues commands.
-        Accepts: 'sell' to sell current position, 'stop'/'exit' to stop.
+        Accepts: 'sell' to sell current position, 'buy' to buy at current price,
+        'stop'/'exit' to stop.
         """
         while True:
             try:
@@ -77,7 +78,8 @@ class TradingBot:
                 break
             if not cmd:
                 continue
-            if cmd in ("sell", "stop", "exit"):
+            # Allow any command that starts with 'buy' to pass through for parsing
+            if cmd in ("sell", "stop", "exit") or cmd.startswith("buy"):
                 self._command_queue.put(cmd)
     
     def select_buy_decision_mode(self) -> bool:
@@ -408,6 +410,53 @@ class TradingBot:
                         print("✓ Manual sell completed. Waiting for next buy setup.")
                 else:
                     print("✗ No open position to sell.")
+            elif cmd.startswith("buy"):
+                # Optional syntax: 'buy' or 'buy <percent>' where percent is 1-100
+                try:
+                    # Fetch latest price to execute manual buy
+                    price = self.exchange.get_current_price(symbol)
+                    if price is None:
+                        print("✗ Failed to fetch price for manual buy.")
+                        continue
+
+                    # Parse optional percentage from command
+                    parts = cmd.split()
+                    percent_override = None
+                    if len(parts) == 2:
+                        try:
+                            val = float(parts[1])
+                            if 0 < val <= 100:
+                                percent_override = val
+                            else:
+                                print("✗ Buy percent must be between 0 and 100.")
+                                continue
+                        except ValueError:
+                            print("✗ Usage: 'buy' or 'buy <percent>' (e.g., 'buy 25')")
+                            continue
+
+                    # Determine amount to buy
+                    balance = self.portfolio.balance
+                    if percent_override is not None:
+                        trade_fraction = percent_override / 100.0
+                        usdt_to_spend = balance * trade_fraction
+                        if usdt_to_spend <= 0:
+                            print("✗ Insufficient balance to buy.")
+                            continue
+                        amount_to_buy = usdt_to_spend / price
+                    else:
+                        amount_to_buy = self.strategy.calculate_buy_amount(balance, price)
+
+                    if amount_to_buy <= 0:
+                        print("✗ Calculated buy amount is zero. Check balance and settings.")
+                        continue
+
+                    success = self.portfolio.buy(symbol, amount_to_buy, price)
+                    if success:
+                        # Update reference price after buy so strategy can manage next steps
+                        self.strategy.update_reference_price_after_buy(symbol, price)
+                        print("✓ Manual buy completed.")
+                except Exception as e:
+                    print(f"✗ Manual buy failed: {e}")
             elif cmd in ("stop", "exit"):
                 print("🛑 Stopping bot by user command.")
                 self.is_running = False
@@ -451,6 +500,8 @@ class TradingBot:
             
         print(f"Trade Size:       {config.TRADE_PERCENTAGE}% of balance")
         print(f"\nType 'sell' + Enter anytime to sell current position.")
+        print(f"Type 'buy' + Enter to buy using strategy sizing.")
+        print(f"Type 'buy <percent>' to buy a custom percent of balance (e.g., 'buy 25').")
         print(f"Type 'stop' or 'exit' to stop the bot.")
         print(f"Press Ctrl+C to stop the bot as well.\n")
         print(f"{'='*60}\n")
